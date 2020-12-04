@@ -23,6 +23,13 @@ USEMODULE += sock_udp
 # Additional networking modules that can be dropped if not needed
 USEMODULE += gnrc_icmpv6_echo
 
+# MQTT
+USEPKG += paho-mqtt
+USEMODULE += sock_tcp
+USEMODULE += sock_async_event
+USEMODULE += sock_ip
+USEMODULE += ipv6_addr
+
 # include this for printing IP addresses
 USEMODULE += shell
 USEMODULE += shell_commands
