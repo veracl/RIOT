@@ -13,15 +13,20 @@ RIOTBASE ?= $(CURDIR)/../..
 # Include packages that pull up and auto-init the link layer.
 # NOTE: 6LoWPAN will be included if IEEE802.15.4 devices are present
 
-# uncomment this to compile in support for a possibly available radio
-#USEMODULE += gnrc_netdev_default
-
-USEMODULE += auto_init_gnrc_netif
-# Specify the mandatory networking modules for IPv6 and UDP
-USEMODULE += gnrc_ipv6_router_default
 USEMODULE += sock_udp
-# Additional networking modules that can be dropped if not needed
-USEMODULE += gnrc_icmpv6_echo
+
+# LwIP
+USEMODULE += netdev_default
+USEMODULE += lwip_ipv6_autoconfig
+USEMODULE += lwip_netdev
+USEMODULE += lwip
+
+# MQTT
+USEPKG += paho-mqtt
+USEMODULE += sock_tcp
+USEMODULE += sock_async_event
+USEMODULE += sock_ip
+USEMODULE += ipv6_addr
 
 # include this for printing IP addresses
 USEMODULE += shell
@@ -59,7 +64,7 @@ USE_ETHOS ?= 1
 
 ifeq (1,$(USE_ETHOS))
   USEMODULE += stdio_ethos
-  USEMODULE += gnrc_uhcpc
+  USEMODULE += uhcpc
 
   # ethos baudrate can be configured from make command
   ETHOS_BAUDRATE ?= 115200
