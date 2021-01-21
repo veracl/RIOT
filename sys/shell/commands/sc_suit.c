@@ -23,6 +23,7 @@
 #include <inttypes.h>
 
 #include "suit/transport/coap.h"
+#include "suit/transport/mqtt_sn.h"
 
 
 int _suit_handler(int argc, char **argv)
@@ -32,7 +33,12 @@ int _suit_handler(int argc, char **argv)
         return 1;
     }
 
+#ifdef MODULE_SUIT_TRANSPORT_COAP
     suit_coap_trigger((uint8_t *)argv[1], strlen(argv[1]));
+#endif
+#ifdef MODULE_SUIT_TRANSPORT_MQTT_SN
+    suit_mqtt_sn_trigger(argv[1], strlen(argv[1]));
+#endif
 
     return 0;
 }

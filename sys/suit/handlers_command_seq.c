@@ -38,6 +38,9 @@
 #ifdef MODULE_SUIT_TRANSPORT_COAP
 #include "suit/transport/coap.h"
 #endif
+#ifdef MODULE_SUIT_TRANSPORT_MQTT_SN
+#include "suit/transport/mqtt_sn.h"
+#endif
 #include "suit/transport/mock.h"
 
 #include "log.h"
@@ -361,6 +364,13 @@ static int _dtv_fetch(suit_manifest_t *manifest, int key,
         res = suit_coap_get_blockwise_url(manifest->urlbuf, CONFIG_SUIT_COAP_BLOCKSIZE,
                                           suit_storage_helper,
                                           manifest);
+    }
+#endif
+#ifdef MODULE_SUIT_TRANSPORT_MQTT_SN
+    else if (strncmp(manifest->urlbuf, "mqtt://", 7) == 0) {
+        res = suit_mqtt_sn_fetch(manifest->urlbuf,
+                                 suit_mqtt_sn_on_pub_firmware,
+                                 manifest);
     }
 #endif
 #ifdef MODULE_SUIT_TRANSPORT_MOCK

@@ -21,6 +21,8 @@ COAP_HOST = "[fd00:dead:beef::1]"
 UPDATING_TIMEOUT = 10
 MANIFEST_TIMEOUT = 15
 
+SUIT_TRANSPORT = os.getenv("SUIT_TRANSPORT", "coap")
+
 USE_ETHOS = int(os.getenv("USE_ETHOS", "1"))
 TAP = os.getenv("TAP", "riot0")
 TMPDIR = tempfile.TemporaryDirectory()
@@ -146,7 +148,7 @@ def running_slot(child):
 def _test_invalid_version(child, client, app_ver):
     publish(TMPDIR.name, COAP_HOST, app_ver - 1)
     notify(COAP_HOST, client, app_ver - 1)
-    child.expect_exact("suit_coap: trigger received")
+    child.expect_exact("suit_" + SUIT_TRANSPORT + ": trigger received")
     child.expect_exact("suit: verifying manifest signature")
     child.expect_exact("seq_nr <= running image")
 
@@ -154,17 +156,27 @@ def _test_invalid_version(child, client, app_ver):
 def _test_invalid_signature(child, client, app_ver):
     publish(TMPDIR.name, COAP_HOST, app_ver + 1, 'invalid_keys')
     notify(COAP_HOST, client, app_ver + 1)
-    child.expect_exact("suit_coap: trigger received")
+    child.expect_exact("suit_" + SUIT_TRANSPORT + ": trigger received")
     child.expect_exact("suit: verifying manifest signature")
     child.expect_exact("Unable to validate signature")
+    child.expect_exact("suit_" + SUIT_TRANSPORT + ": suit_parse() failed")
 
 
 def _test_successful_update(child, client, app_ver):
     for version in [app_ver + 1, app_ver + 2]:
         # Trigger update process, verify it validates manifest correctly
         publish(TMPDIR.name, COAP_HOST, version)
+
+        if version == app_ver + 2 and SUIT_TRANSPORT == "mqtt_sn":
+            child.sendline("reboot")
+            client = get_reachable_addr(child)
+            child.sendline("con")
+            child.expect_exact("suit_mqtt_sn: connected to gateway at [2001:db8::1]:10000")
+            child.sendline("sub")
+            child.expect_exact("suit_mqtt_sn: subscribed to topic 'suit/trigger'")
+
         notify(COAP_HOST, client, version)
-        child.expect_exact("suit_coap: trigger received")
+        child.expect_exact("suit_" + SUIT_TRANSPORT + ": trigger received")
         child.expect_exact("suit: verifying manifest signature")
         child.expect(
             r"riotboot_flashwrite: initializing update to target slot (\d+)\r\n",
@@ -176,7 +188,7 @@ def _test_successful_update(child, client, app_ver):
             pass
 
         # Wait for reboot
-        child.expect_exact("suit_coap: rebooting...")
+        child.expect_exact("suit_" + SUIT_TRANSPORT + ": rebooting...")
         # Verify running slot
         current_slot = running_slot(child)
         assert target_slot == current_slot, "BOOTED FROM SAME SLOT"
@@ -192,13 +204,23 @@ def _test_suit_command_is_there(child):
 def testfunc(child):
     # Get current app_ver
     current_app_ver = app_version(child)
-    # Verify client is reachable and get address
-    client = get_reachable_addr(child)
+
+    if SUIT_TRANSPORT == "coap":
+        # Verify client is reachable and get address
+        client = get_reachable_addr(child)
 
     # Verify the suit shell command is there
     _test_suit_command_is_there(child)
 
     def run(func):
+        if SUIT_TRANSPORT == "mqtt_sn":
+            child.sendline("reboot")
+            client = get_reachable_addr(child)
+            child.sendline("con")
+            child.expect_exact("suit_mqtt_sn: connected to gateway at [2001:db8::1]:10000")
+            child.sendline("sub")
+            child.expect_exact("suit_mqtt_sn: subscribed to topic 'suit/trigger'")
+
         if child.logfile == sys.stdout:
             func(child, client, current_app_ver)
         else:
@@ -219,13 +241,15 @@ def testfunc(child):
 if __name__ == "__main__":
     try:
         res = 1
-        aiocoap_process = start_aiocoap_fileserver()
-        # TODO: wait for coap port to be available
+        if SUIT_TRANSPORT == "coap":
+            aiocoap_process = start_aiocoap_fileserver()
+            # TODO: wait for coap port to be available
         res = run(testfunc, echo=True)
 
     except Exception as e:
         print(e)
     finally:
-        cleanup(aiocoap_process)
+        if SUIT_TRANSPORT == "coap":
+            cleanup(aiocoap_process)
 
     sys.exit(res)

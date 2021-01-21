@@ -4,10 +4,21 @@
 # makefiles/suit.base.inc.mk
 #
 #
+SUIT_TRIGGER ?= suit/trigger
+
 SUIT_COAP_BASEPATH ?= fw/$(BOARD)
 SUIT_COAP_SERVER ?= localhost
 SUIT_COAP_ROOT ?= coap://$(SUIT_COAP_SERVER)/$(SUIT_COAP_BASEPATH)
 SUIT_COAP_FSROOT ?= $(RIOTBASE)/coaproot
+
+SUIT_MQTT_SN_TOPIC ?= suit/$(BOARD)
+SUIT_MQTT_SN_ROOT ?= mqtt://$(SUIT_MQTT_SN_TOPIC)
+
+ifeq ($(SUIT_TRANSPORT),coap)
+SUIT_ROOT = $(SUIT_COAP_ROOT)
+else ifeq ($(SUIT_TRANSPORT),mqtt_sn)
+SUIT_ROOT = $(SUIT_MQTT_SN_ROOT)
+endif
 
 #
 SUIT_MANIFEST ?= $(BINDIR_APP)-riot.suit.$(APP_VER).bin
@@ -28,7 +39,7 @@ SUIT_CLASS ?= $(BOARD)
 #
 $(SUIT_MANIFEST): $(SLOT0_RIOT_BIN) $(SLOT1_RIOT_BIN)
 	$(RIOTBASE)/dist/tools/suit/gen_manifest.py \
-	  --urlroot $(SUIT_COAP_ROOT) \
+	  --urlroot $(SUIT_ROOT) \
 	  --seqnr $(SUIT_SEQNR) \
 	  --uuid-vendor $(SUIT_VENDOR) \
 	  --uuid-class $(SUIT_CLASS) \
@@ -58,15 +69,37 @@ SUIT_MANIFESTS := $(SUIT_MANIFEST) \
 suit/manifest: $(SUIT_MANIFESTS)
 
 suit/publish: $(SUIT_MANIFESTS) $(SLOT0_RIOT_BIN) $(SLOT1_RIOT_BIN)
+ifeq ($(SUIT_TRANSPORT),coap)
+	@echo "Publishing over CoAP"
 	@mkdir -p $(SUIT_COAP_FSROOT)/$(SUIT_COAP_BASEPATH)
 	@cp $^ $(SUIT_COAP_FSROOT)/$(SUIT_COAP_BASEPATH)
 	@for file in $^; do \
 		echo "published \"$$file\""; \
 		echo "       as \"$(SUIT_COAP_ROOT)/$$(basename $$file)\""; \
 	done
+else ifeq ($(SUIT_TRANSPORT),mqtt_sn)
+	@echo "Publishing over MQTT-SN"
+	@for file in $^; do \
+		$(RIOTBASE)/dist/tools/suit/mqtt_publish_update.py \
+			--file "$$file" \
+			--mqtt-topic "$(SUIT_MQTT_SN_TOPIC)/$$(basename $$file)"; \
+	done
+else
+	@echo "error: SUIT_TRANSPORT unset or unsupported"
+endif
 
 suit/notify: | $(filter suit/publish, $(MAKECMDGOALS))
 	@test -n "$(SUIT_CLIENT)" || { echo "error: SUIT_CLIENT unset!"; false; }
-	aiocoap-client -m POST "coap://$(SUIT_CLIENT)/suit/trigger" \
+ifeq ($(SUIT_TRANSPORT),coap)
+	@echo "Triggering $(SUIT_CLIENT) over CoAP"
+	aiocoap-client -m POST "coap://$(SUIT_CLIENT)/$(SUIT_TRIGGER)" \
 		--payload "$(SUIT_COAP_ROOT)/$(SUIT_NOTIFY_MANIFEST)" && \
 		echo "Triggered $(SUIT_CLIENT) to update."
+else ifeq ($(SUIT_TRANSPORT),mqtt_sn)
+	@echo "Triggering $(SUIT_CLIENT) over MQTT-SN"
+	mosquitto_pub -t $(SUIT_TRIGGER) \
+		-m $(SUIT_MQTT_SN_ROOT)/$(SUIT_NOTIFY_MANIFEST) && \
+		echo "Triggered $(SUIT_CLIENT) to update."
+else
+	@echo "error: SUIT_TRANSPORT unset or unsupported"
+endif

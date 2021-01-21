@@ -39,17 +39,36 @@ QUIET ?= 1
 # SUIT update specific stuff
 #
 
-USEMODULE += nanocoap_sock sock_util
-USEMODULE += suit suit_transport_coap suit_storage_flashwrite
+USEMODULE += sock_util
+USEMODULE += suit suit_storage_flashwrite
+
+# Update trigger
+CFLAGS += -DSUIT_TRIGGER=\"$(SUIT_TRIGGER)\"
+
+# Choose transport: coap, mqtt_sn
+SUIT_TRANSPORT ?= coap
+
+# Default manifest resource location when fetched through gpio trigger
+CFLAGS += -DSUIT_MANIFEST_RESOURCE=\"$(SUIT_ROOT)/$(SUIT_NOTIFY_MANIFEST)\"
+
+ifeq ($(SUIT_TRANSPORT),coap)
+  # Include CoAP transport
+  USEMODULE += nanocoap_sock suit_transport_coap
+else ifeq ($(SUIT_TRANSPORT),mqtt_sn)
+  # Include MQTT-SN transport
+  USEMODULE += emcute suit_transport_mqtt_sn
+
+  # Allow for env-var-based override of the node's name (EMCUTE_ID)
+  ifneq (,$(EMCUTE_ID))
+    CFLAGS += -DEMCUTE_ID=\"$(EMCUTE_ID)\"
+  endif
+endif
 
 # Display a progress bar during firmware download
 USEMODULE += progress_bar
 
 # Optional feature to trigger suit update through gpio callback
 FEATURES_OPTIONAL += periph_gpio_irq
-
-# Default COAP manifest resource location when fetched through gpio trigger
-CFLAGS += -DSUIT_MANIFEST_RESOURCE=\"$(SUIT_COAP_ROOT)/$(SUIT_NOTIFY_MANIFEST)\"
 
 # Enable test_utils_interactive_sync, only used when running automatic test
 DEFAULT_MODULE += test_utils_interactive_sync

@@ -526,7 +526,7 @@ static const coap_resource_t _subtree[] = {
     { "/suit/slot/active", COAP_METHOD_GET, _slot_handler, NULL },
     { "/suit/slot/inactive", COAP_METHOD_GET, _slot_handler, (void *)0x1 },
 #endif
-    { "/suit/trigger", COAP_METHOD_PUT | COAP_METHOD_POST, _trigger_handler,
+    { SUIT_TRIGGER, COAP_METHOD_PUT | COAP_METHOD_POST, _trigger_handler,
       NULL },
     { "/suit/version", COAP_METHOD_GET, _version_handler, NULL },
 };
