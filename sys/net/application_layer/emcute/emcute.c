@@ -124,6 +124,53 @@ static int syncsend(uint8_t resp, size_t len, bool unlock)
     return res;
 }
 
+static void on_register(size_t len, size_t pos)
+{
+    /* make sure packet length is valid - if not, drop packet silently */
+    if (len < (pos + 6)) {
+        return;
+    }
+
+    uint16_t tid = byteorder_bebuftohs(&rbuf[pos + 1]);
+
+    /* allocate a response packet */
+    uint8_t buf[7] = { 7, REGACK, 0, 0, 0, 0, ACCEPT };
+    /* and populate message ID and topic ID fields */
+    memcpy(&buf[2], &rbuf[pos + 1], 4);
+
+    if ((len - 6) > CONFIG_EMCUTE_TOPIC_MAXLEN) {
+        buf[6] = REJ_NOTSUP;
+        sock_udp_send(&sock, &buf, 7, &gateway);
+        return;
+    }
+
+    size_t dat_len = (len - 6);
+    void *dat = (dat_len > 0) ? &rbuf[pos + 5] : NULL;
+
+    /* find sub of matching wildcard topic (only /# is supported) */
+    emcute_sub_t *sub;
+    for (sub = subs; sub; sub = sub->next) {
+        if (sub->topics[0].name[strlen(sub->topics[0].name) - 2] == '/'
+            && sub->topics[0].name[strlen(sub->topics[0].name) - 1] == '#') {
+                if (strncmp(sub->topics[0].name, (char *)dat,
+                    strlen(sub->topics[0].name) - 1) == 0) {
+                    break;
+                }
+            }
+    }
+    if (sub == NULL) {
+        buf[6] = REJ_INVTID;
+        sock_udp_send(&sock, &buf, 7, &gateway);
+        LOG_ERROR("[emcute] on reg: no matching parent subscription found\n");
+    }
+    else {
+        sock_udp_send(&sock, &buf, 7, &gateway);
+        DEBUG("[emcute] on reg: got topic ID %d for subtopic of %s\n",
+              tid, sub->topics[0].name);
+        sub->reg_cb(sub, (char *)dat, dat_len, tid);
+    }
+}
+
 static void on_disconnect(void)
 {
     gateway.port = 0;
@@ -156,6 +203,20 @@ static void on_ack(uint8_t type, int id_pos, int ret_pos, int res_pos)
     }
 }
 
+static emcute_sub_t *find_sub_by_tid(uint16_t tid, unsigned *i)
+{
+    emcute_sub_t *sub = subs;
+    while (sub != NULL) {
+        for (*i = 0; *i <= CONFIG_EMCUTE_SUBTOPICS_MAX; (*i)++) {
+            if (sub->topics[*i].id == tid) {
+                return sub;
+            }
+        }
+        sub = sub->next;
+    }
+    return NULL;
+}
+
 static void on_publish(size_t len, size_t pos)
 {
     /* make sure packet length is valid - if not, drop packet silently */
@@ -163,7 +224,6 @@ static void on_publish(size_t len, size_t pos)
         return;
     }
 
-    emcute_sub_t *sub;
     uint16_t tid = byteorder_bebuftohs(&rbuf[pos + 2]);
 
     /* allocate a response packet */
@@ -180,7 +240,8 @@ static void on_publish(size_t len, size_t pos)
     }
 
     /* find the registered topic */
-    for (sub = subs; sub && (sub->topic.id != tid); sub = sub->next) {}
+    unsigned topic_num;
+    emcute_sub_t *sub = find_sub_by_tid(tid, &topic_num);
     if (sub == NULL) {
         buf[6] = REJ_INVTID;
         sock_udp_send(&sock, &buf, 7, &gateway);
@@ -193,7 +254,7 @@ static void on_publish(size_t len, size_t pos)
         DEBUG("[emcute] on pub: got %i bytes of data\n", (int)(len - pos - 6));
         size_t dat_len = (len - pos - 6);
         void *dat = (dat_len > 0) ? &rbuf[pos + 6] : NULL;
-        sub->cb(&sub->topic, dat, dat_len);
+        sub->pub_cb(&sub->topics[topic_num], dat, dat_len);
     }
 }
 
@@ -382,28 +443,29 @@ int emcute_pub(emcute_topic_t *topic, const void *data, size_t len,
 
 int emcute_sub(emcute_sub_t *sub, unsigned flags)
 {
-    assert(sub && (sub->cb) && (sub->topic.name) && !(flags & ~SUB_FLAGS));
+    assert(sub && (sub->pub_cb) && (sub->reg_cb)
+           && (sub->topics[0].name) && !(flags & ~SUB_FLAGS));
 
     if (gateway.port == 0) {
         return EMCUTE_NOGW;
     }
-    if (strlen(sub->topic.name) > CONFIG_EMCUTE_TOPIC_MAXLEN) {
+    if (strlen(sub->topics[0].name) > CONFIG_EMCUTE_TOPIC_MAXLEN) {
         return EMCUTE_OVERFLOW;
     }
 
     mutex_lock(&txlock);
 
-    tbuf[0] = (strlen(sub->topic.name) + 5);
+    tbuf[0] = (strlen(sub->topics[0].name) + 5);
     tbuf[1] = SUBSCRIBE;
     tbuf[2] = flags;
     byteorder_htobebufs(&tbuf[3], id_next);
     waitonid = id_next++;
-    memcpy(&tbuf[5], sub->topic.name, strlen(sub->topic.name));
+    memcpy(&tbuf[5], sub->topics[0].name, strlen(sub->topics[0].name));
 
     int res = syncsend(SUBACK, (size_t)tbuf[0], false);
     if (res > 0) {
         DEBUG("[emcute] sub: success, topic id is %i\n", res);
-        sub->topic.id = res;
+        sub->topics[0].id = res;
 
         /* check if subscription is already in the list, only insert if not*/
         emcute_sub_t *s;
@@ -421,7 +483,7 @@ int emcute_sub(emcute_sub_t *sub, unsigned flags)
 
 int emcute_unsub(emcute_sub_t *sub)
 {
-    assert(sub && sub->topic.name);
+    assert(sub && sub->topics[0].name);
 
     if (gateway.port == 0) {
         return EMCUTE_NOGW;
@@ -429,12 +491,12 @@ int emcute_unsub(emcute_sub_t *sub)
 
     mutex_lock(&txlock);
 
-    tbuf[0] = (strlen(sub->topic.name) + 5);
+    tbuf[0] = (strlen(sub->topics[0].name) + 5);
     tbuf[1] = UNSUBSCRIBE;
     tbuf[2] = 0;
     byteorder_htobebufs(&tbuf[3], id_next);
     waitonid = id_next++;
-    memcpy(&tbuf[5], sub->topic.name, strlen(sub->topic.name));
+    memcpy(&tbuf[5], sub->topics[0].name, strlen(sub->topics[0].name));
 
     int res = syncsend(UNSUBACK, (size_t)tbuf[0], false);
     if (res == EMCUTE_OK) {
@@ -561,6 +623,7 @@ void emcute_run(uint16_t port, const char *id)
                 case DISCONNECT:    on_disconnect();                    break;
                 case WILLTOPICRESP: on_ack(type, 0, 0, 0);              break;
                 case WILLMSGRESP:   on_ack(type, 0, 0, 0);              break;
+                case REGISTER:      on_register((size_t)pkt_len, pos);  break;
                 default:
                     LOG_DEBUG("[emcute] received unexpected type [%s]\n",
                               emcute_type_str(type));

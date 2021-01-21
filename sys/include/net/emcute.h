@@ -29,9 +29,7 @@
  * Further know restrictions are:
  * - ASCII topic names only (no support for UTF8 names, yet)
  * - topic length is restricted to fit in a single length byte (248 byte max)
- * - no support for wildcards in topic names. This feature requires more
- *   elaborate internal memory management, supposedly at the cost of quite
- *   increased ROM and RAM usage
+ * - support for wildcards in topic names is limited to topics ending in /#
  * - no retransmit when receiving a REJ_CONG (reject, reason congestion). when
  *   getting a REJ_CONG (reject, reason congestion), the spec tells us to resend
  *   the original message after T_WAIT (default: >5min). This is not supported,
@@ -171,6 +169,15 @@ extern "C" {
 #ifndef CONFIG_EMCUTE_N_RETRY
 #define CONFIG_EMCUTE_N_RETRY               (3U)
 #endif
+
+/**
+ * @brief   Maximum number of subtopics per wildcard subscription
+ *
+ * ...
+ */
+#ifndef CONFIG_EMCUTE_SUBTOPICS_MAX
+#define CONFIG_EMCUTE_SUBTOPICS_MAX         (16U)
+#endif
 /** @} */
 
 /**
@@ -215,7 +222,7 @@ enum {
  * @brief   MQTT-SN topic
  */
 typedef struct {
-    const char *name;           /**< topic string (currently ACSII only) */
+    const char *name;           /**< topic string (currently ASCII only) */
     uint16_t id;                /**< topic id, as assigned by the gateway */
 } emcute_topic_t;
 
@@ -226,15 +233,27 @@ typedef struct {
  * @param[in] data      published data, can be NULL
  * @param[in] len       length of @p data in bytes
  */
-typedef void(*emcute_cb_t)(const emcute_topic_t *topic, void *data, size_t len);
+typedef void(*emcute_pub_cb_t)(const emcute_topic_t *topic, void *data, size_t len);
+
+/**
+ * @brief   Signature for callbacks fired when register messages are received
+ *
+ * @param[in] sub       related (wildcard) subscription
+ * @param[in] name      topic name being registered
+ * @param[in] len       length of @p name in bytes
+ * @param[in] tid       topid ID being registered
+ */
+typedef void(*emcute_reg_cb_t)(const void *sub, const char *name, size_t len, uint16_t tid);
 
 /**
  * @brief   Data-structure for keeping track of topics we register to
  */
 typedef struct emcute_sub {
     struct emcute_sub *next;    /**< next subscription (saved in a list) */
-    emcute_topic_t topic;       /**< topic we subscribe to */
-    emcute_cb_t cb;             /**< function called when receiving messages */
+    emcute_topic_t topics[1 + CONFIG_EMCUTE_SUBTOPICS_MAX];
+                                /**< topic we subscribe to */
+    emcute_pub_cb_t pub_cb;     /**< called when receiving PUBLISH */
+    emcute_reg_cb_t reg_cb;     /**< called when receiving REGISTER */
     void *arg;                  /**< optional custom argument */
 } emcute_sub_t;
 
