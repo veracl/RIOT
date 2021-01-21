@@ -59,6 +59,7 @@
  * - updating will message
  * - sending out periodic PINGREQ messages
  * - handling re-transmits
+ * - DISCONNECT messages initiated by the broker/gateway
  *
  * The following features are however still missing (but planned):
  * @todo        Gateway discovery (so far there is no support for handling
@@ -68,7 +69,6 @@
  * @todo        QOS level 2
  * @todo        QOS level -1
  * @todo        put the node to sleep (send DISCONNECT with duration field set)
- * @todo        handle DISCONNECT messages initiated by the broker/gateway
  * @todo        support for pre-defined and short topic IDs
  * @todo        handle (previously) active subscriptions on reconnect/disconnect
  * @todo        handle re-connect/disconnect from unresponsive gateway (in case
@@ -207,7 +207,8 @@ enum {
     EMCUTE_REJECT   = -2,       /**< error: operation was rejected by broker */
     EMCUTE_OVERFLOW = -3,       /**< error: ran out of buffer space */
     EMCUTE_TIMEOUT  = -4,       /**< error: timeout */
-    EMCUTE_NOTSUP   = -5        /**< error: feature not supported */
+    EMCUTE_NOTSUP   = -5,       /**< error: feature not supported */
+    EMCUTE_GWDISCON = -6        /**< error: gateway disconnected */
 };
 
 /**

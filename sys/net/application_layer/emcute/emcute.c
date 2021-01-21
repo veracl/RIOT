@@ -126,10 +126,16 @@ static int syncsend(uint8_t resp, size_t len, bool unlock)
 
 static void on_disconnect(void)
 {
+    gateway.port = 0;
     if (waiton == DISCONNECT) {
-        gateway.port = 0;
         result = EMCUTE_OK;
         thread_flags_set(timer.arg, TFLAGS_RESP);
+    }
+    else
+    {
+        result = EMCUTE_GWDISCON;
+        thread_flags_set(timer.arg, TFLAGS_RESP);
+        LOG_WARNING("[emcute] on disconnect: gateway terminated connection\n");
     }
 }
 
