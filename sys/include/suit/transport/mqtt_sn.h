@@ -28,12 +28,16 @@
 extern "C" {
 #endif
 
-// TODO do not hardcode
-#define BLOCK_SIZE          64
+/**
+ * @brief MQTT-SN block-wise-transfer size used for SUIT
+ */
+#ifndef CONFIG_SUIT_MQTT_SN_BLOCKSIZE
+#define CONFIG_SUIT_MQTT_SN_BLOCKSIZE  64
+#endif
 
 typedef struct {
   uint16_t num;
-  uint8_t data[BLOCK_SIZE];
+  uint8_t data[CONFIG_SUIT_MQTT_SN_BLOCKSIZE];
   size_t len;
 } suit_mqtt_sn_firmware_block_t;
 

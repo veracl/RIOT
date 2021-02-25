@@ -74,7 +74,7 @@ def main(args):
             i += 1
 
     print("Published \"{:s}\"".format(args.file))
-    print("       to \"{:s}/#\"".format(args.mqtt_topic))
+    print("       to \"{:s}#\"".format(args.mqtt_topic))
     client.disconnect()
 
 

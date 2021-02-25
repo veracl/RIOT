@@ -42,8 +42,11 @@ QUIET ?= 1
 USEMODULE += sock_util
 USEMODULE += suit suit_storage_flashwrite
 
-# Update trigger
+# SUIT resources (CoAP URIs/MQTT-SN topic names)
 CFLAGS += -DSUIT_TRIGGER=\"$(SUIT_TRIGGER)\"
+CFLAGS += -DSUIT_RESOURCE_VERSION=\"suit/version\"
+CFLAGS += -DSUIT_RESOURCE_SLOT_ACTIVE=\"suit/slot/active\"
+CFLAGS += -DSUIT_RESOURCE_SLOT_INACTIVE=\"suit/slot/inactive\"
 
 # Choose transport: coap, mqtt_sn
 SUIT_TRANSPORT ?= coap
@@ -57,6 +60,11 @@ ifeq ($(SUIT_TRANSPORT),coap)
 else ifeq ($(SUIT_TRANSPORT),mqtt_sn)
   # Include MQTT-SN transport
   USEMODULE += emcute suit_transport_mqtt_sn
+
+  # Allow for env-var-based override of emcute's port
+  ifneq (,$(EMCUTE_DEFAULT_PORT))
+    CFLAGS += -DCONFIG_EMCUTE_DEFAULT_PORT=$(EMCUTE_DEFAULT_PORT)
+  endif
 
   # Allow for env-var-based override of the node's name (EMCUTE_ID)
   ifneq (,$(EMCUTE_ID))

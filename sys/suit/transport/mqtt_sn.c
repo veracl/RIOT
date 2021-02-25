@@ -56,7 +56,7 @@
 #endif
 
 #ifndef SUIT_MQTT_SN_PRIO
-#define SUIT_MQTT_SN_PRIO THREAD_PRIORITY_MAIN
+#define SUIT_MQTT_SN_PRIO THREAD_PRIORITY_MAIN - 2
 #endif
 
 #ifndef SUIT_TOPIC_MAX
@@ -97,6 +97,8 @@ static suit_manifest_t suit_manifest;
 
 suit_mqtt_sn_firmware_block_t current_fw_block;
 suit_mqtt_sn_manifest_block_t current_manifest_block;
+
+sock_udp_ep_t last_known_good_gateway;
 
 static kernel_pid_t _suit_mqtt_sn_pid;
 
@@ -140,9 +142,12 @@ sub:
 
         if (res == EMCUTE_GWDISCON) {
             LOG_INFO(LOG_PREFIX "gateway disconnected, trying to reconnect\n");
-            res = cmd_con(0, NULL); // TODO use last known gateway address
-            if (res == 0) {
+            if ((res = emcute_con(&last_known_good_gateway, true, NULL, NULL,
+                                  0, 0)) == EMCUTE_OK) {
+                LOG_INFO(LOG_PREFIX "successfully reconnected to gateway\n");
                 goto sub;
+            } else {
+                LOG_ERROR(LOG_PREFIX "reconnect to gateway failed\n");
             }
         }
         return 1;
@@ -158,7 +163,7 @@ static int _suit_handle_topic(char *topic, emcute_pub_cb_t on_pub,
         LOG_ERROR(LOG_PREFIX "topic doesn't start with \"mqtt://\"\n");
         return -EINVAL;
     }
-    LOG_DEBUG(LOG_PREFIX "downloading from '%s'\n", topic);
+    DEBUG(LOG_PREFIX "downloading from '%s'\n", topic);
     topic += 7;
     strcat(topic, "/#");
     return sub(topic, strlen(topic), on_pub, on_reg);
@@ -174,7 +179,7 @@ static int _parse_block_publish(const char *topic_name, void *data,
     }
     else if (topic_name[strlen(topic_name) - 1] == '/') {
         *num_blocks = atoi((char *) data);
-        LOG_DEBUG(LOG_PREFIX "expecting %i blocks\n", *num_blocks);
+        DEBUG(LOG_PREFIX "expecting %i blocks\n", *num_blocks);
         return -1;
     }
     else {
@@ -197,11 +202,14 @@ static int _parse_block_publish(const char *topic_name, void *data,
     }
 }
 
-// TODO unused parameters?
-static void on_pub_trigger(const emcute_topic_t *topic __attribute__((unused)),
-    void *data, size_t len __attribute__((unused)))
+static void on_pub_trigger(const emcute_topic_t *topic, void *data, size_t len)
 {
-    LOG_DEBUG(LOG_PREFIX "received PUBLISH for trigger topic\n");
+    /* Currently, the topic is irrelevant. It is simply assumed that all
+     * incoming published messages are update triggers.
+     */
+    (void)topic;
+
+    DEBUG(LOG_PREFIX "received PUBLISH for trigger topic\n");
 
     /* payload contains topic name of manifest */
     suit_mqtt_sn_trigger((char *)data, len);
@@ -210,13 +218,13 @@ static void on_pub_trigger(const emcute_topic_t *topic __attribute__((unused)),
 static void on_reg(const void *s, const char *name, size_t len, uint16_t tid)
 {
     emcute_sub_t *sub = (emcute_sub_t *)s;
-    LOG_DEBUG(LOG_PREFIX "received REGISTER\n");
+    DEBUG(LOG_PREFIX "received REGISTER\n");
 
     /* find free slot for new subtopic */
     unsigned i = 1;
     for (i = 1; (i <= CONFIG_EMCUTE_SUBTOPICS_MAX) && (sub->topics[i].id != 0); i++) {}
     if (i == CONFIG_EMCUTE_SUBTOPICS_MAX + 1) {
-        LOG_DEBUG(LOG_PREFIX "max number of subtopic ids exceeded\n");
+        DEBUG(LOG_PREFIX "max number of subtopic ids exceeded\n");
         i -= 1; // TODO replacement strategy?
     }
 
@@ -224,7 +232,7 @@ static void on_reg(const void *s, const char *name, size_t len, uint16_t tid)
     unsigned j;
     for (j = 0; (j < TOPIC_MAXNUM) && (topics[j][0] != '\0'); j++) {}
     if (j == TOPIC_MAXNUM) {
-        LOG_DEBUG(LOG_PREFIX "max number of topic names exceeded\n");
+        DEBUG(LOG_PREFIX "max number of topic names exceeded\n");
         j -= 1; // TODO replacement strategy?
     }
 
@@ -245,7 +253,7 @@ void suit_mqtt_sn_trigger(const char *topic, size_t len)
 static void suit_mqtt_sn_on_pub_manifest(const emcute_topic_t *topic,
                                          void *data, size_t len)
 {
-    LOG_DEBUG(LOG_PREFIX "received PUBLISH for manifest topic '%s' (ID %i)\n",
+    DEBUG(LOG_PREFIX "received PUBLISH for manifest topic '%s' (ID %i)\n",
              topic->name, (int)topic->id);
 
     /* payload contains manifest */
@@ -254,12 +262,12 @@ static void suit_mqtt_sn_on_pub_manifest(const emcute_topic_t *topic,
                                                   &expected_manifest_block);
 
     if (manifest_block_num >= 0) {
-        LOG_DEBUG(LOG_PREFIX "received manifest block %i\n", manifest_block_num);
+        DEBUG(LOG_PREFIX "received manifest block %i\n", manifest_block_num);
 
         current_manifest_block.num = manifest_block_num;
         current_manifest_block.len = len;
 
-        memcpy(_manifest_buf + manifest_block_num * BLOCK_SIZE, data, len);
+        memcpy(_manifest_buf + manifest_block_num * CONFIG_SUIT_MQTT_SN_BLOCKSIZE, data, len);
 
         msg_t m = { .type = SUIT_MSG_MANIFEST,
                     .content.value = manifest_block_num };
@@ -280,7 +288,7 @@ void suit_mqtt_sn_on_pub_firmware(const emcute_topic_t *topic,
                                             &expected_fw_block);
 
     if (fw_block_num >= 0) {
-        LOG_DEBUG(LOG_PREFIX "received firmware block %i\n", fw_block_num);
+        DEBUG(LOG_PREFIX "received firmware block %i\n", fw_block_num);
 
         current_fw_block.num = fw_block_num;
         current_fw_block.len = len;
@@ -334,7 +342,7 @@ int suit_mqtt_sn_fetch(const char *topic,
             case SUIT_MSG_FIRMWARE:
                 ;
                 suit_manifest_t *manifest = &suit_manifest;
-                size_t offset = current_fw_block.num * BLOCK_SIZE;
+                size_t offset = current_fw_block.num * CONFIG_SUIT_MQTT_SN_BLOCKSIZE;
                 bool more = (current_fw_block.num < (num_fw_blocks - 1));
 
                 uint32_t image_size;
@@ -392,33 +400,74 @@ int suit_mqtt_sn_fetch(const char *topic,
     }
 }
 
-// TODO use arguments: gateway address and port
-int cmd_con(int argc __attribute__((unused)), char **argv __attribute__((unused)))
+int pub_device_status(char *topic_name, char *data, size_t len) {
+    int res;
+    emcute_topic_t t;
+
+    t.name = topic_name;
+    if ((res = emcute_reg(&t)) != EMCUTE_OK) {
+        LOG_ERROR(LOG_PREFIX "unable to reg topic ID for %s: %d\n",
+                  topic_name, res);
+        return 1;
+    }
+    if ((res = emcute_pub(&t, data, len, EMCUTE_QOS_1)) != EMCUTE_OK) {
+        LOG_ERROR(LOG_PREFIX "unable to publish device status: %d\n", res);
+        return 1;
+    }
+    return 0;
+}
+
+int cmd_con(int argc, char **argv)
 {
+    if (argc < 2) {
+        printf("usage: %s <ipv6 addr> [port]\n", argv[0]);
+        return 1;
+    }
+
     sock_udp_ep_t gw = { .family = AF_INET6, .port = GATEWAY_PORT };
 
-    /* parse address */
-    if (ipv6_addr_from_str((ipv6_addr_t *)&gw.addr.ipv6, GATEWAY_ADDRESS) == NULL) {
+    if (ipv6_addr_from_str((ipv6_addr_t *)&gw.addr.ipv6, argv[1]) == NULL) {
         LOG_ERROR(LOG_PREFIX "error parsing IPv6 address of gateway\n");
         return 1;
+    }
+
+    if (argc >= 3) {
+        gw.port = atoi(argv[2]);
     }
 
     int res;
     if ((res = emcute_con(&gw, true, NULL, NULL, 0, 0)) != EMCUTE_OK) {
         LOG_ERROR(LOG_PREFIX "unable to connect to gateway at [%s]:%i: %d\n",
-               GATEWAY_ADDRESS, (int)gw.port, res);
+               argv[1], (int)gw.port, res);
         return 1;
     }
     LOG_INFO(LOG_PREFIX "connected to gateway at [%s]:%i\n",
-           GATEWAY_ADDRESS, (int)gw.port);
+           argv[1], (int)gw.port);
+
+    /* store as last known good gateway */
+    memcpy(&last_known_good_gateway, &gw, sizeof(gw));
+
+    /* publish device status */
+    char slot_active = '0' + riotboot_slot_current();
+    pub_device_status(SUIT_RESOURCE_SLOT_ACTIVE, &slot_active, 1);
+    char slot_inactive = '0' + riotboot_slot_other();
+    pub_device_status(SUIT_RESOURCE_SLOT_INACTIVE, &slot_inactive, 1);
+    char version[10];
+    sprintf(version, "%10d",
+            (unsigned)riotboot_slot_get_hdr(riotboot_slot_current())->version);
+    pub_device_status(SUIT_RESOURCE_VERSION, version, strlen(version));
 
     return 0;
 }
 
-// TODO use arguments: topic
-int cmd_sub(int argc __attribute__((unused)), char **argv __attribute__((unused)))
+int cmd_sub(int argc, char **argv)
 {
-    return sub(SUIT_TRIGGER, sizeof(SUIT_TRIGGER), &on_pub_trigger, &on_reg);
+    if (argc < 2) {
+        printf("usage: %s <topic name>\n", argv[0]);
+        return 1;
+    }
+
+    return sub(argv[1], sizeof(argv[1]), &on_pub_trigger, &on_reg);
 }
 
 static void *_suit_mqtt_sn_thread(void *arg)
@@ -434,7 +483,7 @@ static void *_suit_mqtt_sn_thread(void *arg)
     msg_t m;
     while (true) {
         msg_receive(&m);
-        LOG_DEBUG(LOG_PREFIX "got msg with type %" PRIu32 "\n", m.content.value);
+        DEBUG(LOG_PREFIX "got msg with type %" PRIu32 "\n", m.content.value);
         switch (m.type) {
             case SUIT_MSG_TRIGGER:
                 LOG_INFO(LOG_PREFIX "trigger received\n");
@@ -454,7 +503,7 @@ static void *_suit_mqtt_sn_thread(void *arg)
                     int res;
                     if ((res = suit_parse(&manifest, _manifest_buf,
                                           (num_manifest_blocks - 1)
-                                          * BLOCK_SIZE
+                                          * CONFIG_SUIT_MQTT_SN_BLOCKSIZE
                                           + current_manifest_block.len))
                          != SUIT_OK) {
                         LOG_INFO(LOG_PREFIX

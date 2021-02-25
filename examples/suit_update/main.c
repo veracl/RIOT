@@ -150,8 +150,8 @@ static const shell_command_t shell_commands[] = {
     { "current-slot", "Print current slot number", cmd_print_current_slot },
     { "riotboot-hdr", "Print current slot header", cmd_print_riotboot_hdr },
 #ifdef MODULE_SUIT_TRANSPORT_MQTT_SN
-    { "con", "connect to MQTT broker", cmd_con },
-    { "sub", "subscribe topic", cmd_sub },
+    { "con", "connect to MQTT-SN gateway and publish device status", cmd_con },
+    { "sub", "subscribe to MQTT-SN topic", cmd_sub },
 #endif
     { NULL, NULL, NULL }
 };
