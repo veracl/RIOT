@@ -29,6 +29,13 @@ extern "C" {
 #endif
 
 /**
+ * @brief Device ID used for SUIT
+ */
+#ifndef SUIT_ID
+#define SUIT_ID                   "suit_device0"
+#endif
+
+/**
  * @brief MQTT-SN block-wise-transfer size used for SUIT
  */
 #ifndef CONFIG_SUIT_MQTT_SN_BLOCKSIZE

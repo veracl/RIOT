@@ -61,10 +61,6 @@ static msg_t _nanocoap_server_msg_queue[NANOCOAP_SERVER_QUEUE_SIZE];
 #endif
 
 #ifdef MODULE_SUIT_TRANSPORT_MQTT_SN
-#ifndef EMCUTE_ID
-#define EMCUTE_ID           ("suit_update_example")
-#endif
-
 static char emcute_stack[THREAD_STACKSIZE_DEFAULT];
 #endif
 
@@ -89,7 +85,7 @@ static void *_nanocoap_server_thread(void *arg)
 static void *emcute_thread(void *arg)
 {
     (void)arg;
-    emcute_run(CONFIG_EMCUTE_DEFAULT_PORT, EMCUTE_ID);
+    emcute_run(CONFIG_EMCUTE_DEFAULT_PORT, SUIT_ID);
     return NULL;    /* should never be reached */
 }
 #endif

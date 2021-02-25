@@ -52,11 +52,11 @@
 
 #ifndef SUIT_MQTT_SN_STACKSIZE
 /* allocate stack needed to do manifest validation */
-#define SUIT_MQTT_SN_STACKSIZE (3 * THREAD_STACKSIZE_LARGE)
+#define SUIT_MQTT_SN_STACKSIZE    (3 * THREAD_STACKSIZE_LARGE)
 #endif
 
 #ifndef SUIT_MQTT_SN_PRIO
-#define SUIT_MQTT_SN_PRIO THREAD_PRIORITY_MAIN - 2
+#define SUIT_MQTT_SN_PRIO         THREAD_PRIORITY_MAIN - 1
 #endif
 
 #ifndef SUIT_TOPIC_MAX
@@ -64,20 +64,19 @@
 #endif
 
 #ifndef SUIT_MANIFEST_BUFSIZE
-#define SUIT_MANIFEST_BUFSIZE   640
+#define SUIT_MANIFEST_BUFSIZE     640
 #endif
 
-#define GATEWAY_PORT        10000
-#define GATEWAY_ADDRESS     "2001:db8::1"
+#define DEFAULT_GATEWAY_PORT      10000
 
-#define SUB_MAXNUM          (3U)
-#define TOPICS_PER_SUB      (1 + CONFIG_EMCUTE_SUBTOPICS_MAX)
-#define TOPIC_MAXNUM        (TOPICS_PER_SUB * SUB_MAXNUM)
-#define TOPIC_MAXLEN        (64U)
+#define SUB_MAXNUM                (3U)
+#define TOPICS_PER_SUB            (1 + CONFIG_EMCUTE_SUBTOPICS_MAX)
+#define TOPIC_MAXNUM              (TOPICS_PER_SUB * SUB_MAXNUM)
+#define TOPIC_MAXLEN              (64U)
 
-#define SUIT_MSG_TRIGGER    0x1234
-#define SUIT_MSG_MANIFEST   0x1235
-#define SUIT_MSG_FIRMWARE   0x1236
+#define SUIT_MSG_TRIGGER          0x1234
+#define SUIT_MSG_MANIFEST         0x1235
+#define SUIT_MSG_FIRMWARE         0x1236
 
 static int expected_manifest_block = 0;
 static int num_manifest_blocks = 0;
@@ -424,7 +423,7 @@ int cmd_con(int argc, char **argv)
         return 1;
     }
 
-    sock_udp_ep_t gw = { .family = AF_INET6, .port = GATEWAY_PORT };
+    sock_udp_ep_t gw = { .family = AF_INET6, .port = DEFAULT_GATEWAY_PORT };
 
     if (ipv6_addr_from_str((ipv6_addr_t *)&gw.addr.ipv6, argv[1]) == NULL) {
         LOG_ERROR(LOG_PREFIX "error parsing IPv6 address of gateway\n");
@@ -449,13 +448,13 @@ int cmd_con(int argc, char **argv)
 
     /* publish device status */
     char slot_active = '0' + riotboot_slot_current();
-    pub_device_status(SUIT_RESOURCE_SLOT_ACTIVE, &slot_active, 1);
+    pub_device_status(SUIT_RESOURCE_SLOT_ACTIVE "/" SUIT_ID, &slot_active, 1);
     char slot_inactive = '0' + riotboot_slot_other();
-    pub_device_status(SUIT_RESOURCE_SLOT_INACTIVE, &slot_inactive, 1);
+    pub_device_status(SUIT_RESOURCE_SLOT_INACTIVE "/" SUIT_ID, &slot_inactive, 1);
     char version[10];
     sprintf(version, "%10d",
             (unsigned)riotboot_slot_get_hdr(riotboot_slot_current())->version);
-    pub_device_status(SUIT_RESOURCE_VERSION, version, strlen(version));
+    pub_device_status(SUIT_RESOURCE_VERSION "/" SUIT_ID, version, strlen(version));
 
     return 0;
 }

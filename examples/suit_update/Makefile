@@ -66,9 +66,9 @@ else ifeq ($(SUIT_TRANSPORT),mqtt_sn)
     CFLAGS += -DCONFIG_EMCUTE_DEFAULT_PORT=$(EMCUTE_DEFAULT_PORT)
   endif
 
-  # Allow for env-var-based override of the node's name (EMCUTE_ID)
-  ifneq (,$(EMCUTE_ID))
-    CFLAGS += -DEMCUTE_ID=\"$(EMCUTE_ID)\"
+  # Allow for env-var-based override of the node's name (SUIT_ID)
+  ifneq (,$(SUIT_ID))
+    CFLAGS += -DSUIT_ID=\"$(SUIT_ID)\"
   endif
 endif
 
