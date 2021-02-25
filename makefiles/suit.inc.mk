@@ -89,17 +89,17 @@ else
 endif
 
 suit/notify: | $(filter suit/publish, $(MAKECMDGOALS))
-	@test -n "$(SUIT_CLIENT)" || { echo "error: SUIT_CLIENT unset!"; false; }
 ifeq ($(SUIT_TRANSPORT),coap)
+	@test -n "$(SUIT_CLIENT)" || { echo "error: SUIT_CLIENT unset!"; false; }
 	@echo "Triggering $(SUIT_CLIENT) over CoAP"
 	aiocoap-client -m POST "coap://$(SUIT_CLIENT)/$(SUIT_TRIGGER)" \
 		--payload "$(SUIT_COAP_ROOT)/$(SUIT_NOTIFY_MANIFEST)" && \
 		echo "Triggered $(SUIT_CLIENT) to update."
 else ifeq ($(SUIT_TRANSPORT),mqtt_sn)
-	@echo "Triggering $(SUIT_CLIENT) over MQTT-SN"
+	@echo "Triggering $(SUIT_TRIGGER) over MQTT-SN"
 	mosquitto_pub -t $(SUIT_TRIGGER) \
 		-m $(SUIT_MQTT_SN_ROOT)/$(SUIT_NOTIFY_MANIFEST) && \
-		echo "Triggered $(SUIT_CLIENT) to update."
+		echo "Triggered $(SUIT_TRIGGER) to update."
 else
 	@echo "error: SUIT_TRANSPORT unset or unsupported"
 endif

@@ -42,16 +42,16 @@ extern "C" {
 #define CONFIG_SUIT_MQTT_SN_BLOCKSIZE  64
 #endif
 
+/**
+ * @brief State of MQTT-SN block-wise-transfer
+ */
 typedef struct {
-  uint16_t num;
-  uint8_t data[CONFIG_SUIT_MQTT_SN_BLOCKSIZE];
-  size_t len;
-} suit_mqtt_sn_firmware_block_t;
-
-typedef struct {
-  uint16_t num;
-  size_t len;
-} suit_mqtt_sn_manifest_block_t;
+  uint16_t num_blocks_total;
+  uint16_t num_blocks_rcvd;
+  uint16_t current_block_num;
+  uint16_t current_block_len;
+  uint8_t current_block_data[CONFIG_SUIT_MQTT_SN_BLOCKSIZE];
+} suit_mqtt_sn_blockwise_t;
 
 /**
  * @brief   MQTT-SN blockwise fetch callback descriptor

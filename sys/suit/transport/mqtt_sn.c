@@ -56,7 +56,7 @@
 #endif
 
 #ifndef SUIT_MQTT_SN_PRIO
-#define SUIT_MQTT_SN_PRIO         THREAD_PRIORITY_MAIN - 1
+#define SUIT_MQTT_SN_PRIO         THREAD_PRIORITY_MAIN - 2
 #endif
 
 #ifndef SUIT_TOPIC_MAX
@@ -78,11 +78,6 @@
 #define SUIT_MSG_MANIFEST         0x1235
 #define SUIT_MSG_FIRMWARE         0x1236
 
-static int expected_manifest_block = 0;
-static int num_manifest_blocks = 0;
-static int expected_fw_block = 0;
-static int num_fw_blocks = 0;
-
 static emcute_sub_t subscriptions[SUB_MAXNUM];
 static char topics[TOPIC_MAXNUM][TOPIC_MAXLEN];
 
@@ -94,10 +89,10 @@ static char _fw_topic[SUIT_TOPIC_MAX];
 static uint8_t _manifest_buf[SUIT_MANIFEST_BUFSIZE];
 static suit_manifest_t suit_manifest;
 
-suit_mqtt_sn_firmware_block_t current_fw_block;
-suit_mqtt_sn_manifest_block_t current_manifest_block;
+suit_mqtt_sn_blockwise_t blockwise_fw;
+suit_mqtt_sn_blockwise_t blockwise_manifest;
 
-sock_udp_ep_t last_known_good_gateway;
+sock_udp_ep_t last_known_good_gw;
 
 static kernel_pid_t _suit_mqtt_sn_pid;
 
@@ -141,7 +136,7 @@ sub:
 
         if (res == EMCUTE_GWDISCON) {
             LOG_INFO(LOG_PREFIX "gateway disconnected, trying to reconnect\n");
-            if ((res = emcute_con(&last_known_good_gateway, true, NULL, NULL,
+            if ((res = emcute_con(&last_known_good_gw, true, NULL, NULL,
                                   0, 0)) == EMCUTE_OK) {
                 LOG_INFO(LOG_PREFIX "successfully reconnected to gateway\n");
                 goto sub;
@@ -169,7 +164,8 @@ static int _suit_handle_topic(char *topic, emcute_pub_cb_t on_pub,
 }
 
 static int _parse_block_publish(const char *topic_name, void *data,
-                                int *num_blocks, int *expected_block) {
+                                suit_mqtt_sn_blockwise_t *bw)
+{
     char *final_delimiter = strrchr(topic_name, '/');
 
     if (final_delimiter == NULL) {
@@ -177,27 +173,15 @@ static int _parse_block_publish(const char *topic_name, void *data,
         return -1;
     }
     else if (topic_name[strlen(topic_name) - 1] == '/') {
-        *num_blocks = atoi((char *) data);
-        DEBUG(LOG_PREFIX "expecting %i blocks\n", *num_blocks);
-        return -1;
+        bw->num_blocks_total = atoi((char *) data);
+        bw->num_blocks_rcvd = 0;
+        DEBUG(LOG_PREFIX "expecting %i blocks\n", bw->num_blocks_total);
+        return 0;
     }
     else {
-        int block_num = atoi(final_delimiter + 1);
-
-        if (block_num != *expected_block) {
-            LOG_WARNING(LOG_PREFIX
-                        "received unexpected block %i, expected %i\n",
-                        block_num, *expected_block);
-            return -1;
-        }
-
-        if (block_num == *num_blocks - 1) {
-            *expected_block = 0;
-        } else {
-            *expected_block = block_num + 1;
-        }
-
-        return block_num;
+        bw->num_blocks_rcvd++;
+        bw->current_block_num = atoi(final_delimiter + 1);
+        return 0;
     }
 }
 
@@ -255,21 +239,21 @@ static void suit_mqtt_sn_on_pub_manifest(const emcute_topic_t *topic,
     DEBUG(LOG_PREFIX "received PUBLISH for manifest topic '%s' (ID %i)\n",
              topic->name, (int)topic->id);
 
-    /* payload contains manifest */
-    int manifest_block_num = _parse_block_publish(topic->name, data,
-                                                  &num_manifest_blocks,
-                                                  &expected_manifest_block);
+    if (_parse_block_publish(topic->name, data, &blockwise_manifest) != 0) {
+        return;
+    }
 
-    if (manifest_block_num >= 0) {
-        DEBUG(LOG_PREFIX "received manifest block %i\n", manifest_block_num);
+    if (blockwise_manifest.num_blocks_rcvd > 0) {
+        DEBUG(LOG_PREFIX "received manifest block %i\n",
+              blockwise_manifest.current_block_num);
 
-        current_manifest_block.num = manifest_block_num;
-        current_manifest_block.len = len;
+        blockwise_manifest.current_block_len = len;
 
-        memcpy(_manifest_buf + manifest_block_num * CONFIG_SUIT_MQTT_SN_BLOCKSIZE, data, len);
+        /* payload contains manifest */
+        memcpy(_manifest_buf + blockwise_manifest.current_block_num
+                               * CONFIG_SUIT_MQTT_SN_BLOCKSIZE, data, len);
 
-        msg_t m = { .type = SUIT_MSG_MANIFEST,
-                    .content.value = manifest_block_num };
+        msg_t m = { .type = SUIT_MSG_MANIFEST };
         msg_send(&m, _suit_mqtt_sn_pid);
     }
 }
@@ -277,22 +261,34 @@ static void suit_mqtt_sn_on_pub_manifest(const emcute_topic_t *topic,
 void suit_mqtt_sn_on_pub_firmware(const emcute_topic_t *topic,
                                   void *data, size_t len)
 {
-    LOG_DEBUG(LOG_PREFIX
-              "received PUBLISH (%i bytes) for firmware topic '%s' (ID %i)\n",
-              len, topic->name, (int)topic->id);
+    DEBUG(LOG_PREFIX
+          "received PUBLISH (%i bytes) for firmware topic '%s' (ID %i)\n",
+          len, topic->name, (int)topic->id);
 
-    /* payload contains firmware */
-    int fw_block_num = _parse_block_publish(topic->name, data,
-                                            &num_fw_blocks,
-                                            &expected_fw_block);
+    if(_parse_block_publish(topic->name, data, &blockwise_fw) != 0) {
+        return;
+    }
 
-    if (fw_block_num >= 0) {
-        DEBUG(LOG_PREFIX "received firmware block %i\n", fw_block_num);
+    if (blockwise_fw.num_blocks_rcvd > 0) {
+        /* Currently, firmware blocks must be received in order. Otherwise,
+        writing them to flash fails. */
+        if (blockwise_fw.current_block_num != blockwise_fw.num_blocks_rcvd - 1) {
+            LOG_ERROR(LOG_PREFIX "received firmware block %i out of order "
+                    "(expected: %i)\n",
+                    blockwise_fw.current_block_num,
+                    blockwise_fw.num_blocks_rcvd - 1);
+            /* Do not count out-of-order blocks as received */
+            blockwise_fw.num_blocks_rcvd--;
+            return;
+        }
 
-        current_fw_block.num = fw_block_num;
-        current_fw_block.len = len;
+        DEBUG(LOG_PREFIX "received firmware block %i\n",
+              blockwise_fw.current_block_num);
 
-        memcpy(current_fw_block.data, data, len);
+        blockwise_fw.current_block_len = len;
+
+        /* payload contains firmware */
+        memcpy(blockwise_fw.current_block_data, data, len);
 
         msg_t m = { .type = SUIT_MSG_FIRMWARE };
         msg_send(&m, _suit_mqtt_sn_pid);
@@ -336,17 +332,20 @@ int suit_mqtt_sn_fetch(const char *topic,
     msg_t m;
     while (true) {
         msg_receive(&m);
+        DEBUG(LOG_PREFIX "got msg with type %4x\n", m.type);
 
         switch (m.type) {
             case SUIT_MSG_FIRMWARE:
                 ;
                 suit_manifest_t *manifest = &suit_manifest;
-                size_t offset = current_fw_block.num * CONFIG_SUIT_MQTT_SN_BLOCKSIZE;
-                bool more = (current_fw_block.num < (num_fw_blocks - 1));
+                size_t offset = blockwise_fw.current_block_num
+                                * CONFIG_SUIT_MQTT_SN_BLOCKSIZE;
+                bool more = (blockwise_fw.num_blocks_rcvd
+                             < blockwise_fw.num_blocks_total);
 
                 uint32_t image_size;
                 nanocbor_value_t param_size;
-                size_t total = offset + current_fw_block.len;
+                size_t total = offset + blockwise_fw.current_block_len;
                 suit_component_t *comp = &manifest->components[manifest->component_current];
                 suit_param_ref_t *ref_size = &comp->param_size;
 
@@ -357,7 +356,7 @@ int suit_mqtt_sn_fetch(const char *topic,
                     return -1;
                 }
 
-                if (image_size < offset + current_fw_block.len) {
+                if (image_size < offset + blockwise_fw.current_block_len) {
                     /* Extra newline at the start to compensate for the progress bar */
                     LOG_ERROR(
                         "\n" LOG_PREFIX "Image beyond size, offset + len=%u, "
@@ -372,11 +371,13 @@ int suit_mqtt_sn_fetch(const char *topic,
                 }
 
                 _print_download_progress(manifest, offset,
-                                         current_fw_block.len, image_size);
+                                         blockwise_fw.current_block_len,
+                                         image_size);
 
                 int res = suit_storage_write(comp->storage_backend, manifest,
-                                             current_fw_block.data, offset,
-                                             current_fw_block.len);
+                                             blockwise_fw.current_block_data,
+                                             offset,
+                                             blockwise_fw.current_block_len);
 
                 if (!more) {
                     LOG_INFO(LOG_PREFIX "Finalizing payload store\n");
@@ -444,7 +445,7 @@ int cmd_con(int argc, char **argv)
            argv[1], (int)gw.port);
 
     /* store as last known good gateway */
-    memcpy(&last_known_good_gateway, &gw, sizeof(gw));
+    memcpy(&last_known_good_gw, &gw, sizeof(gw));
 
     /* publish device status */
     char slot_active = '0' + riotboot_slot_current();
@@ -482,7 +483,8 @@ static void *_suit_mqtt_sn_thread(void *arg)
     msg_t m;
     while (true) {
         msg_receive(&m);
-        DEBUG(LOG_PREFIX "got msg with type %" PRIu32 "\n", m.content.value);
+        DEBUG(LOG_PREFIX "got msg with type %4x\n", m.type);
+
         switch (m.type) {
             case SUIT_MSG_TRIGGER:
                 LOG_INFO(LOG_PREFIX "trigger received\n");
@@ -491,7 +493,7 @@ static void *_suit_mqtt_sn_thread(void *arg)
                                    &on_reg);
                 break;
             case SUIT_MSG_MANIFEST:
-                if ((uint16_t) m.content.value == num_manifest_blocks - 1) {
+                if (blockwise_manifest.num_blocks_rcvd == blockwise_manifest.num_blocks_total) {
 #ifdef MODULE_SUIT
                     suit_manifest_t manifest;
                     memset(&manifest, 0, sizeof(manifest));
@@ -501,9 +503,9 @@ static void *_suit_mqtt_sn_thread(void *arg)
 
                     int res;
                     if ((res = suit_parse(&manifest, _manifest_buf,
-                                          (num_manifest_blocks - 1)
+                                          (blockwise_manifest.num_blocks_total - 1)
                                           * CONFIG_SUIT_MQTT_SN_BLOCKSIZE
-                                          + current_manifest_block.len))
+                                          + blockwise_manifest.current_block_len))
                          != SUIT_OK) {
                         LOG_INFO(LOG_PREFIX
                                  "suit_parse() failed. res=%i\n", res);
@@ -527,6 +529,10 @@ static void *_suit_mqtt_sn_thread(void *arg)
                         }
                     }
                 }
+                break;
+            case SUIT_MSG_FIRMWARE:
+                /* Firmware image fetch was aborted due to an error,
+                   all image blocks still arriving now can be discarded */
                 break;
             default:
                 LOG_WARNING(LOG_PREFIX "warning: unhandled msg type\n");
