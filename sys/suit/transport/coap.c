@@ -523,12 +523,12 @@ void suit_coap_trigger(const uint8_t *url, size_t len)
 
 static const coap_resource_t _subtree[] = {
 #ifdef MODULE_RIOTBOOT_SLOT
-    { "/suit/slot/active", COAP_METHOD_GET, _slot_handler, NULL },
-    { "/suit/slot/inactive", COAP_METHOD_GET, _slot_handler, (void *)0x1 },
+    { "/" SUIT_RESOURCE_SLOT_ACTIVE, COAP_METHOD_GET, _slot_handler, NULL },
+    { "/" SUIT_RESOURCE_SLOT_INACTIVE, COAP_METHOD_GET, _slot_handler, (void *)0x1 },
 #endif
-    { "/suit/trigger", COAP_METHOD_PUT | COAP_METHOD_POST, _trigger_handler,
+    { "/" SUIT_TRIGGER, COAP_METHOD_PUT | COAP_METHOD_POST, _trigger_handler,
       NULL },
-    { "/suit/version", COAP_METHOD_GET, _version_handler, NULL },
+    { "/" SUIT_RESOURCE_VERSION, COAP_METHOD_GET, _version_handler, NULL },
 };
 
 const coap_resource_subtree_t coap_resource_subtree_suit =

@@ -118,6 +118,10 @@ ifneq (,$(filter suit_transport_coap,$(USEMODULE)))
   SRC += sc_suit.c
 endif
 
+ifneq (,$(filter suit_transport_mqtt_sn,$(USEMODULE)))
+  SRC += sc_suit.c
+endif
+
 ifneq (,$(filter cryptoauthlib,$(USEPKG)))
   SRC += sc_cryptoauthlib.c
 endif

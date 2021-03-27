@@ -180,7 +180,7 @@ extern int _nimble_netif_handler(int argc, char **argv);
 extern int _nimble_statconn_handler(int argc, char **argv);
 #endif
 
-#ifdef MODULE_SUIT_TRANSPORT_COAP
+#if defined(MODULE_SUIT_TRANSPORT_COAP) || defined(MODULE_SUIT_TRANSPORT_MQTT_SN)
 extern int _suit_handler(int argc, char **argv);
 #endif
 
@@ -316,7 +316,7 @@ const shell_command_t _shell_command_list[] = {
 #ifdef MODULE_NIMBLE_STATCONN
     { "statconn", "NimBLE netif statconn", _nimble_statconn_handler},
 #endif
-#ifdef MODULE_SUIT_TRANSPORT_COAP
+#if defined(MODULE_SUIT_TRANSPORT_COAP) || defined(MODULE_SUIT_TRANSPORT_MQTT_SN)
     { "suit", "Trigger a SUIT firmware update", _suit_handler },
 #endif
 #ifdef MODULE_CRYPTOAUTHLIB

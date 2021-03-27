@@ -23,7 +23,7 @@ def parse_arguments():
                         help='Path of file to publish')
     parser.add_argument('--block-size', '-s', type=int, default=64,
                         help='Block size')
-    parser.add_argument('--mqtt-topic', '-t', default='suit/nrf52dk/'
+    parser.add_argument('--mqtt-topic', '-t', default='suit/'
                         'suit_update-riot.suit_signed.latest.bin',
                         help='MQTT topic to publish to (prefix)')
     parser.add_argument('--mqtt-host', '-b', default='localhost',
@@ -66,7 +66,7 @@ def main(args):
             if read_data == b'':
                 break
 
-            res = client.publish(topic=args.mqtt_topic + str(i),
+            res = client.publish(topic=args.mqtt_topic + '/' + str(i),
                                  payload=read_data,
                                  qos=args.mqtt_qos,
                                  retain=not args.mqtt_no_retain)
@@ -74,15 +74,15 @@ def main(args):
             i += 1
 
     print("Published \"{:s}\"".format(args.file))
-    print("       to \"{:s}/#\"".format(args.mqtt_topic))
+    print("       to \"{:s}/{{0..{:d}}}\"".format(args.mqtt_topic, num_blocks - 1))
     client.disconnect()
 
 
 if __name__ == "__main__":
     _args = parse_arguments()
 
-    # Add trailing slash
-    if not _args.mqtt_topic.endswith('/'):
-        _args.mqtt_topic = _args.mqtt_topic + '/'
+    # Remove trailing slash
+    if _args.mqtt_topic.endswith('/'):
+        _args.mqtt_topic = _args.mqtt_topic[:-1]
 
     main(_args)
