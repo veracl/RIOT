@@ -411,8 +411,8 @@ int emcute_sub(emcute_sub_t *sub, unsigned flags)
         if (!s) {
             sub->next = subs;
             subs = sub;
-            res = EMCUTE_OK;
         }
+        res = EMCUTE_OK;
     }
 
     mutex_unlock(&txlock);
